@@ -44,19 +44,48 @@ def _resolve_model_dir(model_dir: str | None) -> str:
 
 def _load_model_and_tokenizer(model_dir: str | None):
     resolved = _resolve_model_dir(model_dir)
+    # If root doesn't have config.json, try to auto-descend into a single subdir that does
+    if not os.path.isfile(os.path.join(resolved, "config.json")):
+        try:
+            subdirs = [
+                os.path.join(resolved, name)
+                for name in os.listdir(resolved)
+                if os.path.isdir(os.path.join(resolved, name))
+            ]
+        except FileNotFoundError:
+            subdirs = []
+        candidates = [d for d in subdirs if os.path.isfile(os.path.join(d, "config.json"))]
+        if len(candidates) == 1:
+            resolved = candidates[0]
     if resolved in _MODEL_CACHE:
         return _MODEL_CACHE[resolved]
 
-    # Validate expected files exist to avoid huggingface repo-id validation path
-    required_files = [
-        "config.json",
-        "tokenizer_config.json",
-        "special_tokens_map.json",
-    ]
-    missing = [f for f in required_files if not os.path.isfile(os.path.join(resolved, f))]
-    if missing:
+    # Validate local layout with minimal requirements
+    required_present = [os.path.isfile(os.path.join(resolved, "config.json"))]
+    model_file_present = any(
+        os.path.isfile(os.path.join(resolved, fname))
+        for fname in ("model.safetensors", "pytorch_model.bin")
+    )
+    tokenizer_present = any(
+        os.path.isfile(os.path.join(resolved, fname)) for fname in ("tokenizer.model", "tokenizer.json")
+    )
+    if not all(required_present) or not model_file_present or not tokenizer_present:
+        dir_listing = []
+        try:
+            dir_listing = sorted(os.listdir(resolved))[:50]
+        except Exception:
+            pass
+        missing_parts = []
+        if not required_present[0]:
+            missing_parts.append("config.json")
+        if not model_file_present:
+            missing_parts.append("model.safetensors|pytorch_model.bin")
+        if not tokenizer_present:
+            missing_parts.append("tokenizer.model|tokenizer.json")
         raise FileNotFoundError(
-            f"Model directory does not contain required files: {', '.join(missing)} | resolved: {resolved}"
+            "Model directory does not contain required files: "
+            + ", ".join(missing_parts)
+            + f" | resolved: {resolved} | found: {dir_listing}"
         )
 
     text_model = LlamaForCausalLM.from_pretrained(
