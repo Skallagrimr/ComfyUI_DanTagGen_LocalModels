@@ -1,4 +1,26 @@
-# ComfyUI_DanTagGen
+# ComfyUI_DanTagGen (Fork)
+
+This is a fork of [huchenlei/ComfyUI_DanTagGen](https://github.com/huchenlei/ComfyUI_DanTagGen).
+
+## What changed in this fork
+
+- Uses a single pre-downloaded local model located in `custom_nodes/ComfyUI_DanTagGen/models`.
+- Removes the Hugging Face model selection dropdown from the node UI; no online downloads.
+- Caches the model and tokenizer in-memory so they load only once per session.
+
+Place the following files in `custom_nodes/ComfyUI_DanTagGen/models`:
+
+- `model.safetensors`
+- `tokenizer.model`
+- `tokenizer_config.json`
+- `config.json`
+- `added_tokens.json`
+- `special_tokens_map.json`
+- `generation_config.json`
+
+ComfyUI will load the model from this folder automatically when the node runs.
+
+---
 
 ComfyUI node of [Kohaku's DanTagGen Demo](https://huggingface.co/KBlueLeaf/DanTagGen?not-for-all-audiences=true). It can generate the detail tags/core tags about the character you put in the prompts. It can also add some extra elements into your prompt.
 
@@ -15,7 +37,11 @@ More information about model arch and training data can be found in the HuggingF
 
 
 ## How to use it
-Load the [example workflow](https://github.com/huchenlei/ComfyUI_DanTagGen/blob/main/examples/dtg.json) and connect the output to `CLIP Text Encode (Prompt)`'s text input. You can right click `CLIP Text Encode (Prompt)` to convert in-node text input to external text input.
+1) Ensure the local model files are placed under `custom_nodes/ComfyUI_DanTagGen/models` as listed above.
+
+2) Load the [example workflow](https://github.com/huchenlei/ComfyUI_DanTagGen/blob/main/examples/dtg.json) and connect the output to `CLIP Text Encode (Prompt)`'s text input. You can right click `CLIP Text Encode (Prompt)` to convert in-node text input to external text input.
+
+Note: The original example workflow includes a `model` dropdown. In this fork the dropdown is removed; if loading that workflow causes input mismatch, re-add the node or update the node inputs accordingly.
 
 ![image](https://github.com/huchenlei/ComfyUI_DanTagGen/assets/20929282/466bfcb2-4a8c-48a3-8c5a-53ad170e0f6c)
 

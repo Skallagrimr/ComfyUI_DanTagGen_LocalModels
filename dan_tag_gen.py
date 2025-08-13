@@ -1,16 +1,39 @@
+import os
 import torch
 from transformers import LlamaForCausalLM, LlamaTokenizer
 
 from .lib_dantaggen.app import get_result
 from .lib_dantaggen.kgen.metainfo import TARGET
 
-MODEL_PATHS = [
-    "KBlueLeaf/DanTagGen-alpha",
-    "KBlueLeaf/DanTagGen-beta",
-    "KBlueLeaf/DanTagGen-delta",
-    "KBlueLeaf/DanTagGen-delta-rev2",
-]
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+LOCAL_MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
+
+_TEXT_MODEL = None
+_TOKENIZER = None
+
+
+def _load_local_model_and_tokenizer():
+    global _TEXT_MODEL, _TOKENIZER
+    if _TEXT_MODEL is not None and _TOKENIZER is not None:
+        return _TEXT_MODEL, _TOKENIZER
+
+    text_model = LlamaForCausalLM.from_pretrained(
+        LOCAL_MODEL_DIR,
+        local_files_only=True,
+    )
+    # Keep fp32 on CPU; use fp16 on CUDA like original code
+    if DEVICE == "cuda":
+        text_model = text_model.half()
+    text_model = text_model.requires_grad_(False).eval().to(DEVICE)
+
+    tokenizer = LlamaTokenizer.from_pretrained(
+        LOCAL_MODEL_DIR,
+        local_files_only=True,
+    )
+
+    _TEXT_MODEL = text_model
+    _TOKENIZER = tokenizer
+    return _TEXT_MODEL, _TOKENIZER
 
 
 class DanTagGen:
@@ -20,7 +43,6 @@ class DanTagGen:
     def INPUT_TYPES(s):
         return {
             "required": {
-                "model": (MODEL_PATHS,),
                 "artist": ("STRING", {"default": ""}),
                 "characters": ("STRING", {"default": ""}),
                 "copyrights": ("STRING", {"default": ""}),
@@ -49,7 +71,6 @@ class DanTagGen:
 
     def generate(
         self,
-        model: str,
         rating: str,
         artist: str,
         characters: str,
@@ -63,18 +84,7 @@ class DanTagGen:
         escape_bracket: bool,
         temperature: float,
     ):
-        models = {
-            model_path: [
-                LlamaForCausalLM.from_pretrained(model_path)
-                .requires_grad_(False)
-                .eval()
-                .half()
-                .to(DEVICE),
-                LlamaTokenizer.from_pretrained(model_path),
-            ]
-            for model_path in MODEL_PATHS
-        }
-        text_model, tokenizer = models[model]
+        text_model, tokenizer = _load_local_model_and_tokenizer()
         result = list(
             get_result(
                 text_model,
