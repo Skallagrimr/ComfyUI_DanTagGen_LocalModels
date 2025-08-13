@@ -14,21 +14,50 @@ _MODEL_CACHE: dict[str, tuple[LlamaForCausalLM, LlamaTokenizer]] = {}
 def _resolve_model_dir(model_dir: str | None) -> str:
     if not model_dir:
         return LOCAL_MODEL_DIR
-    candidate = os.path.expanduser(model_dir)
-    if os.path.isabs(candidate):
-        return candidate
-    # try relative to current working directory first
-    cwd_candidate = os.path.abspath(os.path.join(os.getcwd(), candidate))
+
+    candidate_input = os.path.expanduser(model_dir)
+    # Absolute path handling
+    if os.path.isabs(candidate_input):
+        if os.path.isdir(candidate_input):
+            return candidate_input
+        # If absolute path is invalid but contains a 'custom_nodes' segment, try resolving from CWD
+        marker = f"{os.sep}custom_nodes{os.sep}"
+        if marker in candidate_input:
+            tail = candidate_input.split(marker, maxsplit=1)[-1]
+            cwd_candidate = os.path.abspath(os.path.join(os.getcwd(), "custom_nodes", tail))
+            if os.path.isdir(cwd_candidate):
+                return cwd_candidate
+        # fallback to default
+        return LOCAL_MODEL_DIR
+
+    # Relative path handling: try CWD first (ComfyUI root), then relative to this file
+    cwd_candidate = os.path.abspath(os.path.join(os.getcwd(), candidate_input))
     if os.path.isdir(cwd_candidate):
         return cwd_candidate
-    # fallback to path relative to this file
-    return os.path.abspath(os.path.join(os.path.dirname(__file__), candidate))
+    filedir_candidate = os.path.abspath(os.path.join(os.path.dirname(__file__), candidate_input))
+    if os.path.isdir(filedir_candidate):
+        return filedir_candidate
+
+    # fallback to default models dir
+    return LOCAL_MODEL_DIR
 
 
 def _load_model_and_tokenizer(model_dir: str | None):
     resolved = _resolve_model_dir(model_dir)
     if resolved in _MODEL_CACHE:
         return _MODEL_CACHE[resolved]
+
+    # Validate expected files exist to avoid huggingface repo-id validation path
+    required_files = [
+        "config.json",
+        "tokenizer_config.json",
+        "special_tokens_map.json",
+    ]
+    missing = [f for f in required_files if not os.path.isfile(os.path.join(resolved, f))]
+    if missing:
+        raise FileNotFoundError(
+            f"Model directory does not contain required files: {', '.join(missing)} | resolved: {resolved}"
+        )
 
     text_model = LlamaForCausalLM.from_pretrained(
         resolved,
