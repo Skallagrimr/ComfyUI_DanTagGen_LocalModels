@@ -8,32 +8,43 @@ from .lib_dantaggen.kgen.metainfo import TARGET
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 LOCAL_MODEL_DIR = os.path.join(os.path.dirname(__file__), "models")
 
-_TEXT_MODEL = None
-_TOKENIZER = None
+_MODEL_CACHE: dict[str, tuple[LlamaForCausalLM, LlamaTokenizer]] = {}
 
 
-def _load_local_model_and_tokenizer():
-    global _TEXT_MODEL, _TOKENIZER
-    if _TEXT_MODEL is not None and _TOKENIZER is not None:
-        return _TEXT_MODEL, _TOKENIZER
+def _resolve_model_dir(model_dir: str | None) -> str:
+    if not model_dir:
+        return LOCAL_MODEL_DIR
+    candidate = os.path.expanduser(model_dir)
+    if os.path.isabs(candidate):
+        return candidate
+    # try relative to current working directory first
+    cwd_candidate = os.path.abspath(os.path.join(os.getcwd(), candidate))
+    if os.path.isdir(cwd_candidate):
+        return cwd_candidate
+    # fallback to path relative to this file
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), candidate))
+
+
+def _load_model_and_tokenizer(model_dir: str | None):
+    resolved = _resolve_model_dir(model_dir)
+    if resolved in _MODEL_CACHE:
+        return _MODEL_CACHE[resolved]
 
     text_model = LlamaForCausalLM.from_pretrained(
-        LOCAL_MODEL_DIR,
+        resolved,
         local_files_only=True,
     )
-    # Keep fp32 on CPU; use fp16 on CUDA like original code
     if DEVICE == "cuda":
         text_model = text_model.half()
     text_model = text_model.requires_grad_(False).eval().to(DEVICE)
 
     tokenizer = LlamaTokenizer.from_pretrained(
-        LOCAL_MODEL_DIR,
+        resolved,
         local_files_only=True,
     )
 
-    _TEXT_MODEL = text_model
-    _TOKENIZER = tokenizer
-    return _TEXT_MODEL, _TOKENIZER
+    _MODEL_CACHE[resolved] = (text_model, tokenizer)
+    return _MODEL_CACHE[resolved]
 
 
 class DanTagGen:
@@ -43,6 +54,7 @@ class DanTagGen:
     def INPUT_TYPES(s):
         return {
             "required": {
+                "model": ("STRING", {"default": LOCAL_MODEL_DIR}),
                 "artist": ("STRING", {"default": ""}),
                 "characters": ("STRING", {"default": ""}),
                 "copyrights": ("STRING", {"default": ""}),
@@ -71,6 +83,7 @@ class DanTagGen:
 
     def generate(
         self,
+        model: str,
         rating: str,
         artist: str,
         characters: str,
@@ -84,7 +97,7 @@ class DanTagGen:
         escape_bracket: bool,
         temperature: float,
     ):
-        text_model, tokenizer = _load_local_model_and_tokenizer()
+        text_model, tokenizer = _load_model_and_tokenizer(model)
         result = list(
             get_result(
                 text_model,
